@@ -1,0 +1,160 @@
+{
+  "theme_type": {
+    "description": "图片主题样式",
+    "type": "string",
+    "hint": "normal / dark / neon / wind / oled 任选其一",
+    "default": "normal"
+  },
+  "night_mode": {
+    "description": "启用夜间模式",
+    "type": "bool",
+    "default": false
+  },
+  "night_start": {
+    "description": "夜间模式开始小时(0-23)",
+    "type": "int",
+    "default": 21
+  },
+  "night_end": {
+    "description": "夜间模式结束小时(0-23)",
+    "type": "int",
+    "default": 7
+  },
+  "night_oled": {
+    "description": "夜间模式使用 OLED 主题",
+    "type": "bool",
+    "default": false
+  },
+  "list_style": {
+    "description": "服务器列表输出样式",
+    "type": "string",
+    "hint": "normal(图片卡片)/lite(图片表格)/text(纯文本)",
+    "default": "normal"
+  },
+  "max_show_player": {
+    "description": "服务器图片最大显示人数",
+    "type": "int",
+    "default": 4
+  },
+  "output_ip": {
+    "description": "详情中输出 connect 地址",
+    "type": "bool",
+    "default": true
+  },
+  "query_limit": {
+    "description": "并发查询限制",
+    "type": "int",
+    "hint": "查询订阅服列表时的最大并发数。",
+    "default": 4
+  },
+  "servers": {
+    "description": "订阅服务器列表",
+    "type": "template_list",
+    "hint": "每一项包含 name/group/host/port/rcon_port/rcon_password。host 可填 IP 或域名。",
+    "templates": {
+      "server": {
+        "name": "L4D2 服务器",
+        "display_item": "name",
+        "items": {
+          "name": {
+            "description": "显示名称",
+            "type": "string",
+            "default": "主服"
+          },
+          "group": {
+            "description": "分组名",
+            "type": "string",
+            "default": "服务器"
+          },
+          "host": {
+            "description": "服务器 IP 或域名",
+            "type": "string",
+            "default": "127.0.0.1"
+          },
+          "port": {
+            "description": "服务器端口",
+            "type": "int",
+            "default": 27015
+          },
+          "rcon_port": {
+            "description": "RCON 端口，-1 表示关闭",
+            "type": "int",
+            "default": -1
+          },
+          "rcon_password": {
+            "description": "RCON 密码",
+            "type": "string",
+            "default": ""
+          }
+        }
+      }
+    },
+    "default": []
+  },
+  "steam_web_api": {
+    "description": "Steam Web API Key",
+    "type": "string",
+    "hint": "用于 Steam 找服和求生数据查询。https://steamcommunity.com/dev/apikey",
+    "default": ""
+  },
+  "proxy_url": {
+    "description": "HTTP 代理地址",
+    "type": "string",
+    "hint": "例如 http://127.0.0.1:7890；留空表示直连。",
+    "default": ""
+  },
+  "use_anne": {
+    "description": "启用 Anne 数据库查询",
+    "type": "bool",
+    "default": false
+  },
+  "db_host": {
+    "description": "Anne 数据库地址",
+    "type": "string",
+    "default": "127.0.0.1"
+  },
+  "db_port": {
+    "description": "Anne 数据库端口",
+    "type": "int",
+    "default": 3306
+  },
+  "db_user": {
+    "description": "Anne 数据库用户名",
+    "type": "string",
+    "default": ""
+  },
+  "db_password": {
+    "description": "Anne 数据库密码",
+    "type": "string",
+    "default": ""
+  },
+  "db_name": {
+    "description": "Anne 数据库名",
+    "type": "string",
+    "default": ""
+  },
+  "rcon_enabled": {
+    "description": "启用 RCON",
+    "type": "bool",
+    "hint": "RCON 可以远程执行服务器命令，默认关闭。",
+    "default": false
+  },
+  "use_event": {
+    "description": "启用事件预约系统",
+    "type": "bool",
+    "hint": "启用后可用 event 系列子命令管理群内游戏预约。",
+    "default": false
+  },
+  "event_notice_lead": {
+    "description": "事件提醒提前分钟数",
+    "type": "int",
+    "hint": "事件开始前多少分钟在群里提醒。",
+    "default": 30
+  },
+  "enable_aliases": {
+    "description": "启用自定义指令别名",
+    "type": "bool",
+    "hint": "启用后可直接使用中文指令：服务器/求生数据/connect/rcon/steam绑定/找服/anne查询，无需加 l4d2 前缀。",
+    "default": true
+  }
+}
