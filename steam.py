@@ -60,31 +60,32 @@ class SteamAPI:
         if not self.available:
             return [{"error": "未配置 Steam Web API Key"}]
 
-        # filter 用反斜杠分隔 key\value，URL 中转义为 \\
+        # filter 用反斜杠分隔 key\value。用户输入去掉反斜杠，避免注入额外 filter 段。
+        def _clean(v: str) -> str:
+            return v.replace("\\", "")
+
         filters = [f"appid\\{L4D2_APPID}"]
         if name:
-            filters.append(f"name_match\\{name}")
+            filters.append(f"name_match\\{_clean(name)}")
         if ip:
-            filters.append(f"gameaddr\\{ip}")
+            filters.append(f"gameaddr\\{_clean(ip)}")
         if tag:
-            filters.append(f"gametype\\{tag}")
+            filters.append(f"gametype\\{_clean(tag)}")
         if not ignore_player_limit:
             if empty_only:
                 filters.append("noplayers\\1")
             else:
                 filters.append("empty\\1")
         if region:
-            filters.append(f"region\\{region}")
+            filters.append(f"region\\{_clean(region)}")
 
         filter_str = "\\".join(filters)
-        url = (
-            f"{self.BASE}/IGameServersService/GetServerList/v1/"
-            f"?key={self._key}&filter={filter_str}&limit={max_results}"
-        )
+        url = f"{self.BASE}/IGameServersService/GetServerList/v1/"
+        params = {"key": self._key, "filter": filter_str, "limit": str(max_results)}
 
         try:
             async with self._new_session() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                     if resp.status != 200:
                         return [{"error": f"Steam API 返回 {resp.status}"}]
                     data = await resp.json()
@@ -114,13 +115,11 @@ class SteamAPI:
         """GetUserStatsForGame/v0002 — L4D2 玩家统计。"""
         if not self.available:
             return {"error": "未配置 Steam Web API Key"}
-        url = (
-            f"{self.BASE}/ISteamUserStats/GetUserStatsForGame/v0002/"
-            f"?appid={L4D2_APPID}&key={self._key}&steamid={steamid64}"
-        )
+        url = f"{self.BASE}/ISteamUserStats/GetUserStatsForGame/v0002/"
+        params = {"appid": str(L4D2_APPID), "key": self._key, "steamid": steamid64}
         try:
             async with self._new_session() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                     if resp.status != 200:
                         return {"error": f"API 返回 {resp.status}"}
                     data = await resp.json()
@@ -136,13 +135,11 @@ class SteamAPI:
         """GetPlayerSummaries/v2 — 玩家昵称等信息。"""
         if not self.available:
             return {"error": "未配置 Steam Web API Key"}
-        url = (
-            f"{self.BASE}/ISteamUser/GetPlayerSummaries/v2/"
-            f"?key={self._key}&steamids={steamid64}"
-        )
+        url = f"{self.BASE}/ISteamUser/GetPlayerSummaries/v2/"
+        params = {"key": self._key, "steamids": steamid64}
         try:
             async with self._new_session() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                     if resp.status != 200:
                         return {"error": f"API 返回 {resp.status}"}
                     data = await resp.json()

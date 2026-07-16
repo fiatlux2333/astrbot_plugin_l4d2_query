@@ -24,8 +24,8 @@ import shlex
 from typing import Any, AsyncGenerator, Optional
 
 from astrbot.api import logger
-from astrbot.api.event import AstrMessageEvent, MessageEventResult, filter
-from astrbot.api.message_components import Image, Plain
+from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.api.message_components import Image
 from astrbot.api.star import Context, Star
 from astrbot.core.config.astrbot_config import AstrBotConfig
 
@@ -37,10 +37,8 @@ from .steam import SteamAPI
 from .utils import (
     PlatformUser,
     QueryResult,
-    Reservation,
     ServerConfig,
     RESERVED_WORDS,
-    THEMES,
     format_datetime,
     format_online_time,
     format_playtime,
@@ -52,7 +50,6 @@ from .utils import (
     parse_rcon_target,
     parse_server_addr,
     resolve_theme,
-    steamid64_to_steamid2,
 )
 
 HELP_TEXT = """\
@@ -97,7 +94,7 @@ EVENT_HELP_TEXT = """\
 class L4D2QueryPlugin(Star):
     """L4D2 服务器查询/管理插件。"""
 
-    def __init__(self, context: Context, config: AstrBotConfig):
+    def __init__(self, context: Context, config: AstrBotConfig | None = None):
         super().__init__(context, config)
         self.config = config
         self.data_dir = get_data_dir()
@@ -235,18 +232,24 @@ class L4D2QueryPlugin(Star):
     @filter.command("服务器", alias={"订阅服"})
     async def alias_server(self, event: AstrMessageEvent):
         """查询订阅服务器列表"""
+        if not self._aliases_enabled():
+            return
         async for r in self._cmd_list(event, ""):
             yield r
 
     @filter.command("求生数据", alias={"玩家数据"})
     async def alias_stats(self, event: AstrMessageEvent):
         """查询求生数据"""
+        if not self._aliases_enabled():
+            return
         async for r in self._cmd_stats(event, ""):
             yield r
 
     @filter.command("connect", alias={"连接", "查询服务器"})
     async def alias_connect(self, event: AstrMessageEvent, ip: str = ""):
         """查询任意服务器: connect <ip[:port]>"""
+        if not self._aliases_enabled():
+            return
         if not ip:
             yield event.plain_result("用法: /connect <ip[:port]>")
             return
@@ -254,33 +257,42 @@ class L4D2QueryPlugin(Star):
             yield r
 
     @filter.command("rcon", alias={"远程控制"})
-    async def alias_rcon(self, event: AstrMessageEvent, server: str = "", cmd: str = ""):
+    async def alias_rcon(self, event: AstrMessageEvent):
         """RCON 远程控制: rcon <Nf> <命令>"""
-        if not server or not cmd:
+        if not self._aliases_enabled():
+            return
+        # 贪心解析，支持带空格的多参数命令（如 sm_slay 1）
+        rest = self._strip_any_cmd(event.message_str, ("rcon", "远程控制"))
+        if len(rest.split(maxsplit=1)) < 2:
             yield event.plain_result("用法: /rcon <Nf> <命令>\n例如: /rcon 2f status")
             return
-        rest = f"{server} {cmd}"
         async for r in self._cmd_rcon(event, rest):
             yield r
 
     @filter.command("steam绑定", alias={"Steam绑定", "绑定steam"})
     async def alias_bind(self, event: AstrMessageEvent, steamid: str = ""):
         """绑定 SteamID"""
+        if not self._aliases_enabled():
+            return
         async for r in self._cmd_bind(event, steamid):
             yield r
 
     @filter.command("找服", alias={"搜索服务器"})
     async def alias_search(self, event: AstrMessageEvent):
         """Steam 找服"""
-        # 从 message_str 提取参数
-        rest = self._strip_cmd(event.message_str, "找服")
+        if not self._aliases_enabled():
+            return
+        # 从 message_str 提取参数（兼容所有别名）
+        rest = self._strip_any_cmd(event.message_str, ("找服", "搜索服务器"))
         async for r in self._cmd_search(event, rest):
             yield r
 
     @filter.command("anne查询", alias={"Anne查询", "anne"})
     async def alias_anne(self, event: AstrMessageEvent):
         """查询 Anne 数据库"""
-        rest = self._strip_cmd(event.message_str, "anne查询")
+        if not self._aliases_enabled():
+            return
+        rest = self._strip_any_cmd(event.message_str, ("anne查询", "Anne查询", "anne"))
         async for r in self._cmd_anne(event, rest):
             yield r
 
@@ -815,8 +827,8 @@ class L4D2QueryPlugin(Star):
     @staticmethod
     def _rcon_execute(host: str, port: int, password: str, cmd: str) -> str:
         """同步执行 RCON（由 asyncio.to_thread 调用）。"""
-        from rcon import Client as RconClient
-        with RconClient(host, int(port), password) as client:
+        from rcon.source import Client as RconClient
+        with RconClient(host, int(port), passwd=password) as client:
             return client.run(cmd)
 
     # ==================================================================
@@ -829,6 +841,10 @@ class L4D2QueryPlugin(Star):
             return self.config.get(key, default)
         except Exception:
             return default
+
+    def _aliases_enabled(self) -> bool:
+        """中文快捷指令别名是否启用（对应 enable_aliases 配置）。"""
+        return bool(self._cfg("enable_aliases", True))
 
     def _group_names(self) -> list[str]:
         servers = get_servers_from_config(self.config)
@@ -852,6 +868,19 @@ class L4D2QueryPlugin(Star):
         low = t.lower()
         if low.startswith(cmd.lower()):
             t = t[len(cmd):].strip()
+        return t
+
+    @staticmethod
+    def _strip_any_cmd(text: str, names) -> str:
+        """去除任一匹配到的指令名/别名前缀（用于贪心取参）。"""
+        t = text.strip()
+        if t.startswith("/"):
+            t = t[1:]
+        low = t.lower()
+        # 优先匹配较长的名称，避免 "anne" 抢先于 "anne查询"
+        for name in sorted(names, key=len, reverse=True):
+            if low.startswith(name.lower()):
+                return t[len(name):].strip()
         return t
 
     @staticmethod

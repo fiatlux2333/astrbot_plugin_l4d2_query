@@ -362,7 +362,7 @@ def parse_event_time(time_str: str) -> Optional[datetime]:
             date_part, time_part = time_str.split()
             y, mo, d = date_part.split(sep)
             h, mi = time_part.split(":")
-            dt = datetime(now.year if False else int(y), int(mo), int(d), int(h), int(mi))
+            dt = datetime(int(y), int(mo), int(d), int(h), int(mi))
             return dt
         except (ValueError, IndexError):
             return None
