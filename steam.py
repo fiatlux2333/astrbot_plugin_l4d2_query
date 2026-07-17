@@ -29,16 +29,30 @@ class SteamAPI:
     def __init__(self, api_key: str = "", proxy_url: str = ""):
         self._key = api_key or ""
         self._proxy = proxy_url or None
+        self._session: Optional[aiohttp.ClientSession] = None
 
     @property
     def available(self) -> bool:
         return bool(self._key)
 
-    def _new_session(self) -> aiohttp.ClientSession:
-        if self._proxy:
-            connector = aiohttp.TCPConnector(proxy=self._proxy)
-            return aiohttp.ClientSession(connector=connector)
-        return aiohttp.ClientSession()
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """复用同一个 ClientSession，避免每次请求都重建连接池。"""
+        if self._session is None or self._session.closed:
+            if self._proxy:
+                connector = aiohttp.TCPConnector(proxy=self._proxy)
+                self._session = aiohttp.ClientSession(connector=connector)
+            else:
+                self._session = aiohttp.ClientSession()
+        return self._session
+
+    async def close(self) -> None:
+        """关闭底层 ClientSession。应在插件 terminate 时调用。"""
+        if self._session and not self._session.closed:
+            try:
+                await self._session.close()
+            except Exception:
+                pass
+        self._session = None
 
     # ==================================================================
     # 服务器搜索 / Server Search
@@ -84,11 +98,11 @@ class SteamAPI:
         params = {"key": self._key, "filter": filter_str, "limit": str(max_results)}
 
         try:
-            async with self._new_session() as session:
-                async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                    if resp.status != 200:
-                        return [{"error": f"Steam API 返回 {resp.status}"}]
-                    data = await resp.json()
+            session = await self._get_session()
+            async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status != 200:
+                    return [{"error": f"Steam API 返回 {resp.status}"}]
+                data = await resp.json()
         except asyncio.TimeoutError:
             return [{"error": "Steam API 请求超时"}]
         except Exception as e:  # noqa: BLE001
@@ -118,11 +132,11 @@ class SteamAPI:
         url = f"{self.BASE}/ISteamUserStats/GetUserStatsForGame/v0002/"
         params = {"appid": str(L4D2_APPID), "key": self._key, "steamid": steamid64}
         try:
-            async with self._new_session() as session:
-                async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                    if resp.status != 200:
-                        return {"error": f"API 返回 {resp.status}"}
-                    data = await resp.json()
+            session = await self._get_session()
+            async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status != 200:
+                    return {"error": f"API 返回 {resp.status}"}
+                data = await resp.json()
         except Exception as e:  # noqa: BLE001
             return {"error": f"请求失败: {e}"}
 
@@ -138,11 +152,11 @@ class SteamAPI:
         url = f"{self.BASE}/ISteamUser/GetPlayerSummaries/v2/"
         params = {"key": self._key, "steamids": steamid64}
         try:
-            async with self._new_session() as session:
-                async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                    if resp.status != 200:
-                        return {"error": f"API 返回 {resp.status}"}
-                    data = await resp.json()
+            session = await self._get_session()
+            async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status != 200:
+                    return {"error": f"API 返回 {resp.status}"}
+                data = await resp.json()
         except Exception as e:  # noqa: BLE001
             return {"error": f"请求失败: {e}"}
 

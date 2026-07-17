@@ -21,7 +21,8 @@ import asyncio
 import json
 import os
 import shlex
-from typing import Any, AsyncGenerator, Optional
+from collections.abc import AsyncGenerator
+from typing import Any, Optional
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
@@ -35,10 +36,10 @@ from .query import QueryEngine, get_cfg_name
 from .render import Renderer
 from .steam import SteamAPI
 from .utils import (
+    RESERVED_WORDS,
     PlatformUser,
     QueryResult,
     ServerConfig,
-    RESERVED_WORDS,
     format_datetime,
     format_online_time,
     format_playtime,
@@ -182,6 +183,11 @@ class L4D2QueryPlugin(Star):
                 await self._renderer.stop()
             except Exception:
                 pass
+        if self._steam:
+            try:
+                await self._steam.close()
+            except Exception:
+                pass
         if self._anne:
             try:
                 await self._anne.close()
@@ -233,6 +239,7 @@ class L4D2QueryPlugin(Star):
     async def alias_server(self, event: AstrMessageEvent):
         """查询订阅服务器列表"""
         if not self._aliases_enabled():
+            yield event.plain_result(self._alias_disabled_hint())
             return
         async for r in self._cmd_list(event, ""):
             yield r
@@ -241,6 +248,7 @@ class L4D2QueryPlugin(Star):
     async def alias_stats(self, event: AstrMessageEvent):
         """查询求生数据"""
         if not self._aliases_enabled():
+            yield event.plain_result(self._alias_disabled_hint())
             return
         async for r in self._cmd_stats(event, ""):
             yield r
@@ -249,6 +257,7 @@ class L4D2QueryPlugin(Star):
     async def alias_connect(self, event: AstrMessageEvent, ip: str = ""):
         """查询任意服务器: connect <ip[:port]>"""
         if not self._aliases_enabled():
+            yield event.plain_result(self._alias_disabled_hint())
             return
         if not ip:
             yield event.plain_result("用法: /connect <ip[:port]>")
@@ -260,6 +269,7 @@ class L4D2QueryPlugin(Star):
     async def alias_rcon(self, event: AstrMessageEvent):
         """RCON 远程控制: rcon <Nf> <命令>"""
         if not self._aliases_enabled():
+            yield event.plain_result(self._alias_disabled_hint())
             return
         # 贪心解析，支持带空格的多参数命令（如 sm_slay 1）
         rest = self._strip_any_cmd(event.message_str, ("rcon", "远程控制"))
@@ -273,6 +283,7 @@ class L4D2QueryPlugin(Star):
     async def alias_bind(self, event: AstrMessageEvent, steamid: str = ""):
         """绑定 SteamID"""
         if not self._aliases_enabled():
+            yield event.plain_result(self._alias_disabled_hint())
             return
         async for r in self._cmd_bind(event, steamid):
             yield r
@@ -281,6 +292,7 @@ class L4D2QueryPlugin(Star):
     async def alias_search(self, event: AstrMessageEvent):
         """Steam 找服"""
         if not self._aliases_enabled():
+            yield event.plain_result(self._alias_disabled_hint())
             return
         # 从 message_str 提取参数（兼容所有别名）
         rest = self._strip_any_cmd(event.message_str, ("找服", "搜索服务器"))
@@ -291,6 +303,7 @@ class L4D2QueryPlugin(Star):
     async def alias_anne(self, event: AstrMessageEvent):
         """查询 Anne 数据库"""
         if not self._aliases_enabled():
+            yield event.plain_result(self._alias_disabled_hint())
             return
         rest = self._strip_any_cmd(event.message_str, ("anne查询", "Anne查询", "anne"))
         async for r in self._cmd_anne(event, rest):
@@ -503,9 +516,9 @@ class L4D2QueryPlugin(Star):
             yield event.plain_result("该分组无服务器")
             return
         yield event.plain_result(f"正在查询 {len(sv_list)} 台服务器...")
-        results = await asyncio.wait_for(
-            self._query.query_batch_light(sv_list), timeout=15
-        ) if self._query else [QueryResult(server=sv) for sv in sv_list]
+        # query_batch_light 内部对单台有 wait_for 超时降级，无需外层再 wait_for
+        # （外层超时会取消整个 gather，连已查到的结果也丢弃）。
+        results = await self._query.query_batch_light(sv_list) if self._query else [QueryResult(server=sv) for sv in sv_list]
         async for r in self._output_list(event, results, group_name=group_name or "服务器"):
             yield r
 
@@ -553,9 +566,7 @@ class L4D2QueryPlugin(Star):
             # 查列表
             sv_list = [sv for _, sv in target]
             yield event.plain_result(f"正在查询 {group_name} 分组 {len(sv_list)} 台服务器...")
-            results = await asyncio.wait_for(
-                self._query.query_batch_light(sv_list), timeout=15
-            ) if self._query else [QueryResult(server=sv) for sv in sv_list]
+            results = await self._query.query_batch_light(sv_list) if self._query else [QueryResult(server=sv) for sv in sv_list]
             async for r in self._output_list(event, results, group_name=group_name):
                 yield r
 
@@ -808,18 +819,18 @@ class L4D2QueryPlugin(Star):
     def _load_binds(self) -> dict[str, str]:
         try:
             if os.path.exists(self._bind_path):
-                with open(self._bind_path, "r", encoding="utf-8") as f:
+                with open(self._bind_path, encoding="utf-8") as f:
                     return json.load(f)
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"SteamID 绑定数据加载失败: {e}")
         return {}
 
     def _save_binds(self, data: dict[str, str]) -> None:
         try:
             with open(self._bind_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"SteamID 绑定数据保存失败: {e}")
 
     # ==================================================================
     # RCON 执行 / RCON Execution
@@ -846,10 +857,14 @@ class L4D2QueryPlugin(Star):
         """中文快捷指令别名是否启用（对应 enable_aliases 配置）。"""
         return bool(self._cfg("enable_aliases", True))
 
+    def _alias_disabled_hint(self) -> str:
+        """别名被禁用时的统一提示。"""
+        return "快捷指令别名已禁用，请在 AstrBot WebUI 的插件配置中开启 enable_aliases，或使用 /l4d2 前缀指令。"
+
     def _group_names(self) -> list[str]:
         servers = get_servers_from_config(self.config)
         groups = group_servers(servers)
-        return [g for g in groups.keys() if g not in RESERVED_WORDS]
+        return [g for g in groups if g not in RESERVED_WORDS]
 
     def _get_user(self, event: AstrMessageEvent) -> PlatformUser:
         return PlatformUser(

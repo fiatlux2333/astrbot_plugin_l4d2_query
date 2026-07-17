@@ -10,10 +10,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from jinja2 import Template
+from jinja2 import Environment, select_autoescape
 
 from .query import get_cfg_name, get_os_icon
 from .utils import QueryResult, format_online_time
+
+# 开启自动转义，防止服务器名/玩家名等不可信数据注入 HTML。
+# 模板中 r.player_count 为 tuple，按索引访问不受影响；display_players 内的
+# 字段会被转义为安全文本。
+_ENV = Environment(autoescape=select_autoescape(default=True), trim_blocks=True, lstrip_blocks=True)
 
 
 # ======================================================================
@@ -61,7 +66,6 @@ html, body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  font-display: swap;
 }
 #body { display: inline-block; min-width: 360px; }
 
@@ -604,7 +608,7 @@ class Renderer:
         # 准备模板数据
         view_data = [_build_list_view(r, max_players, output_ip, idx) for idx, r in enumerate(results, 1)]
         tmpl = TEMPLATE_NORMAL if style != "lite" else TEMPLATE_LITE
-        html = Template(tmpl).render(
+        html = _ENV.from_string(tmpl).render(
             results=view_data,
             theme=theme,
             group_name=group_name,
@@ -616,7 +620,7 @@ class Renderer:
                             max_players: int, output_ip: bool) -> bytes | str:
         """渲染单服务器详情。"""
         view = _build_detail_view(result, max_players, output_ip)
-        html = Template(TEMPLATE_DETAIL).render(result=view, theme=theme)
+        html = _ENV.from_string(TEMPLATE_DETAIL).render(result=view, theme=theme)
         return await self._screenshot(html)
 
     # ----- 纯文本 -----

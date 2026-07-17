@@ -241,7 +241,7 @@ playwright install chromium
 
 ## 📄 许可证
 
-本项目继承原插件的许可证，详见原项目仓库。
+本项目继承原项目 [koishi-plugin-l4d2-query](https://github.com/CatKoishi/koishi-plugin-l4d2-query) 的 **GPL-3.0** 许可证，详见仓库根目录的 [LICENSE](./LICENSE) 文件。
 
 ## ❤ 致谢
 

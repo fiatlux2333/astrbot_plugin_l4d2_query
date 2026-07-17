@@ -6,7 +6,8 @@ author: NyaKoishi, ported by WorkBuddy
 repo: https://github.com/fiatlux2333/astrbot_plugin_l4d2_query
 display_name: L4D2 求生之路查询
 short_desc: 求生之路2服务器查询、订阅、Steam找服、Anne、RCON、事件预约
-astrbot_version: ">=3.4.0,<5"
+license: GPL-3.0
+astrbot_version: ">=4.17.0,<5"
 support_platforms:
   - aiocqhttp
   - qq_official

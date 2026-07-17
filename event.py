@@ -14,6 +14,8 @@ import time
 from datetime import datetime
 from typing import Any, Optional
 
+from astrbot.api import logger
+
 from .utils import PlatformUser, Reservation, parse_event_time
 
 LOOP_INTERVAL = 600  # 10 分钟
@@ -52,8 +54,11 @@ class EventManager:
             self._task.cancel()
             try:
                 await self._task
-            except (asyncio.CancelledError, Exception):
+            except asyncio.CancelledError:
+                # 正常的取消信号，正常传播即可
                 pass
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"事件扫描循环异常退出: {e}")
             self._task = None
         self._save()
 
@@ -203,12 +208,13 @@ class EventManager:
         if not os.path.exists(self._path):
             return
         try:
-            with open(self._path, "r", encoding="utf-8") as f:
+            with open(self._path, encoding="utf-8") as f:
                 data = json.load(f)
-            for idx_str, d in data.items():
+            for _idx_str, d in data.items():
                 res = Reservation.from_dict(d)
                 self._res[res.index] = res
-        except Exception:
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"预约数据加载失败，已重置为空: {e}")
             self._res = {}
 
     def _save(self) -> None:
@@ -216,8 +222,8 @@ class EventManager:
             data = {str(idx): res.to_dict() for idx, res in self._res.items()}
             with open(self._path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"预约数据保存失败: {e}")
 
     # ==================================================================
     # 定时循环 / Scheduled Loop
@@ -268,8 +274,8 @@ class EventManager:
             from astrbot.api.message_components import MessageChain, Plain
         except Exception:
             try:
-                from astrbot.core.platform.message_components import MessageChain
                 from astrbot.api.message_components import Plain
+                from astrbot.core.platform.message_components import MessageChain
             except Exception:
                 return
         try:

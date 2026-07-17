@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
 
-
 # ======================================================================
 # 主题定义 / Theme Definitions
 # ======================================================================
@@ -41,7 +40,7 @@ class ServerConfig:
     rcon_password: str = ""
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "ServerConfig":
+    def from_dict(cls, d: dict[str, Any]) -> ServerConfig:
         return cls(
             name=str(d.get("name", "服务器")),
             group=str(d.get("group", "")).strip(),
@@ -98,7 +97,7 @@ class PlatformUser:
         return {"uid": self.uid, "nickname": self.nickname}
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "PlatformUser":
+    def from_dict(cls, d: dict[str, Any]) -> PlatformUser:
         return cls(uid=str(d.get("uid", "")), nickname=str(d.get("nickname", "")))
 
 
@@ -133,7 +132,7 @@ class Reservation:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "Reservation":
+    def from_dict(cls, d: dict[str, Any]) -> Reservation:
         return cls(
             index=int(d.get("index", 0)),
             is_expired=bool(d.get("is_expired", False)),

@@ -90,11 +90,22 @@ class QueryEngine:
         return result
 
     async def query_batch_light(self, servers: list[ServerConfig]) -> list[QueryResult]:
-        """批量轻量查询：asyncio.gather + Semaphore 并发。"""
+        """批量轻量查询：asyncio.gather + Semaphore 并发。
+
+        单台异常不影响其他；异常的服务器返回离线 QueryResult，避免整体取消丢结果。
+        """
         if not servers:
             return []
         tasks = [self.query_light(sv) for sv in servers]
-        return await asyncio.gather(*tasks, return_exceptions=False)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        out: list[QueryResult] = []
+        for sv, r in zip(servers, results, strict=True):
+            if isinstance(r, QueryResult):
+                out.append(r)
+            else:
+                # 异常（如 CancelledError）退化为离线，保留 server 占位
+                out.append(QueryResult(server=sv))
+        return out
 
     async def query_batch_full(self, servers: list[ServerConfig]) -> list[QueryResult]:
         """批量完整查询（慎用，较慢）。"""

@@ -56,7 +56,8 @@ class AnneDB:
             "FROM players WHERE name = %s LIMIT 1"
         )
         rows = await self._fetchall(sql, (name,))
-        return dict(zip(("lastontime", "playtime", "points", "steamid", "name"), rows[0])) if rows else None
+        cols = ("lastontime", "playtime", "points", "steamid", "name")
+        return dict(zip(cols, rows[0], strict=True)) if rows else None
 
     async def query_player_by_steamid(self, steamid: str) -> Optional[dict[str, Any]]:
         """按 SteamID 查 players 表。"""
@@ -65,7 +66,8 @@ class AnneDB:
             "FROM players WHERE steamid = %s LIMIT 1"
         )
         rows = await self._fetchall(sql, (steamid,))
-        return dict(zip(("lastontime", "playtime", "points", "steamid", "name"), rows[0])) if rows else None
+        cols = ("lastontime", "playtime", "points", "steamid", "name")
+        return dict(zip(cols, rows[0], strict=True)) if rows else None
 
     async def query_rpg_tag(self, steamid: str) -> str:
         """查 rpg 表 CHATTAG（玩家标签）。无记录返回空串。"""
