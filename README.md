@@ -10,6 +10,7 @@
 
 这是一个从 [koishi-plugin-l4d2-query](https://github.com/CatKoishi/koishi-plugin-l4d2-query) 移植到 AstrBot 的 L4D2 服务器查询/管理插件。插件支持服务器详情查询、订阅分组列表、Steam Web API 找服、玩家数据统计、Anne 药役数据库查询、RCON 远程控制，以及群内事件预约系统（含定时提醒）。
 
+
 ## 💿 安装
 
 ### 通过 AstrBot 插件市场安装（推荐）
@@ -120,6 +121,8 @@ apk add font-noto-cjk
 /l4d2 server <序号>             查询默认组第 N 台服务器详情
 /l4d2 <组名> [序号]             查询某分组列表或详情
 ```
+<img width="360" height="452" alt="0a16632ab7c6db97aec77e247f87b6f5" src="https://github.com/user-attachments/assets/1ea45864-617e-4cda-b2ae-110c19be3663" />
+
 
 ### Steam 找服
 
