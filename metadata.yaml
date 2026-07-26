@@ -1,8 +1,8 @@
 name: astrbot_plugin_l4d2_query
-desc: Left 4 Dead 2 服务器查询/订阅/管理插件，从 koishi-plugin-l4d2-query 全量移植
+desc: Left 4 Dead 2 服务器查询/订阅/管理插件
 help: 输入 /l4d2 查看帮助；输入 /event 查看事件预约帮助
 version: v1.0.0
-author: NyaKoishi, ported by WorkBuddy
+author: 牡蛎
 repo: https://github.com/fiatlux2333/astrbot_plugin_l4d2_query
 display_name: L4D2 求生之路查询
 short_desc: 求生之路2服务器查询、订阅、Steam找服、Anne、RCON、事件预约
