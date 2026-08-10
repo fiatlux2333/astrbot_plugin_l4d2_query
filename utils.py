@@ -6,9 +6,11 @@
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import socket
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
@@ -426,3 +428,44 @@ RESERVED_WORDS = frozenset({
     "connect", "list", "server", "search", "bind", "stats",
     "anne", "rcon", "help", "event",
 })
+
+
+def atomic_write_json(path: str, data: Any) -> None:
+    """原子写入 JSON 文件。
+
+    先写到同目录临时文件，再 os.replace 替换目标。
+    os.replace 在 POSIX 与 Windows 上均为原子操作，
+    避免进程崩溃时产生截断/空文件导致数据全丢。
+    """
+    d = os.path.dirname(os.path.abspath(path))
+    fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, path)
+    except Exception:
+        # 清理临时文件
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+# 用于在自由文本中搜索时间子串（非锚定版 parse_event_time 的两种格式）
+# YYYY 模式放前面，优先匹配更长的时间串，避免被 MM/DD 模式截短。
+_TIME_SEARCH_RE = re.compile(
+    r"\d{4}[/\-]\d{1,2}[/\-]\d{1,2}\s+\d{1,2}:\d{1,2}"
+    r"|\d{1,2}[/\-]\d{1,2}\s+\d{1,2}:\d{1,2}"
+)
+
+
+def find_time_str(text: str) -> Optional[tuple[str, int, int]]:
+    """在自由文本中搜索时间子串。
+
+    返回 (time_str, start, end) 或 None。
+    """
+    m = _TIME_SEARCH_RE.search(text)
+    if m:
+        return (m.group(), m.start(), m.end())
+    return None

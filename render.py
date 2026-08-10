@@ -606,7 +606,7 @@ class Renderer:
             return self.render_text(results, output_ip, group_name)
 
         # 准备模板数据
-        view_data = [_build_list_view(r, max_players, output_ip, idx) for idx, r in enumerate(results, 1)]
+        view_data = [_build_list_view(r, max_players, idx) for idx, r in enumerate(results, 1)]
         tmpl = TEMPLATE_NORMAL if style != "lite" else TEMPLATE_LITE
         html = _ENV.from_string(tmpl).render(
             results=view_data,
@@ -619,7 +619,7 @@ class Renderer:
     async def render_detail(self, result: QueryResult, theme: dict[str, str],
                             max_players: int, output_ip: bool) -> bytes | str:
         """渲染单服务器详情。"""
-        view = _build_detail_view(result, max_players, output_ip)
+        view = _build_detail_view(result, max_players)
         html = _ENV.from_string(TEMPLATE_DETAIL).render(result=view, theme=theme)
         return await self._screenshot(html)
 
@@ -633,6 +633,8 @@ class Renderer:
                 lines.append(f"   地图: {r.map_name}")
                 on, mx, bots = r.player_count
                 lines.append(f"   人数: {on}/{mx}")
+                if output_ip and r.server:
+                    lines.append(f"   地址: {r.server.host}:{r.server.port}")
                 cfg = get_cfg_name(r.rules)
                 if cfg:
                     lines.append(f"   模式: {cfg}")
@@ -659,6 +661,8 @@ class Renderer:
             lines.append(f"模式: {cfg}")
         on, mx, bots = result.player_count
         lines.append(f"玩家: {on}/{mx}")
+        if output_ip and result.server:
+            lines.append(f"地址: {result.server.host}:{result.server.port}")
         if result.players:
             lines.append("")
             lines.append("玩家列表:")
@@ -708,7 +712,7 @@ class Renderer:
 # ======================================================================
 # 视图数据构建 / View Data Builders
 # ======================================================================
-def _build_list_view(r: QueryResult, max_players: int, output_ip: bool, idx: int) -> dict[str, Any]:
+def _build_list_view(r: QueryResult, max_players: int, idx: int) -> dict[str, Any]:
     """构建列表渲染用的视图 dict。"""
     if r.online:
         raw_players = r.players if not r.player_error else []
@@ -729,7 +733,6 @@ def _build_list_view(r: QueryResult, max_players: int, output_ip: bool, idx: int
             "player_count": r.player_count,
             "os_icon": get_os_icon(info.get("platform", "")),
             "cfg_name": get_cfg_name(r.rules),
-            "ip_str": f"{r.server.host}:{r.server.port}" if (output_ip and r.server) else "",
             "display_players": display,
             "vac": info.get("vac_enabled", False),
             "version": info.get("version", ""),
@@ -742,14 +745,13 @@ def _build_list_view(r: QueryResult, max_players: int, output_ip: bool, idx: int
         "player_count": (0, 0, 0),
         "os_icon": "",
         "cfg_name": "",
-        "ip_str": "",
         "display_players": [],
         "vac": False,
         "version": "",
     }
 
 
-def _build_detail_view(r: QueryResult, max_players: int, output_ip: bool) -> dict[str, Any]:
+def _build_detail_view(r: QueryResult, max_players: int) -> dict[str, Any]:
     """构建详情渲染用的视图 dict。"""
     if r.online:
         players = r.players if not r.player_error else []
@@ -764,7 +766,6 @@ def _build_detail_view(r: QueryResult, max_players: int, output_ip: bool) -> dic
             "player_count": r.player_count,
             "os_icon": get_os_icon(info.get("platform", "")),
             "cfg_name": get_cfg_name(r.rules),
-            "ip_str": f"{r.server.host}:{r.server.port}" if (output_ip and r.server) else "",
             "players": players,
             "display_players": display,
             "version": info.get("version", ""),
@@ -777,7 +778,6 @@ def _build_detail_view(r: QueryResult, max_players: int, output_ip: bool) -> dic
         "player_count": (0, 0, 0),
         "os_icon": "",
         "cfg_name": "",
-        "ip_str": "",
         "players": [],
         "display_players": [],
         "version": "",

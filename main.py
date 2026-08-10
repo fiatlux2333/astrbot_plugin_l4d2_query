@@ -40,6 +40,8 @@ from .utils import (
     PlatformUser,
     QueryResult,
     ServerConfig,
+    atomic_write_json,
+    find_time_str,
     format_datetime,
     format_online_time,
     format_playtime,
@@ -54,7 +56,7 @@ from .utils import (
 )
 
 HELP_TEXT = """\
-L4D2 求生之路查询 v1.0
+L4D2 求生之路查询 v1.0.1
 ━━━━━━━━━━━━━━━━━━━━
 /l4d2 connect <ip[:port]>  查询任意服务器
 /l4d2 list [组名]           订阅服务器列表
@@ -318,11 +320,24 @@ class L4D2QueryPlugin(Star):
         # 仅声明，子指令在下方注册
 
     @event.command("add")
-    async def event_add(self, event: AstrMessageEvent, name: str, time_str: str, max_player: int = 10000):
-        """创建预约: event add <名称> <时间> [人数上限]"""
+    async def event_add(self, event: AstrMessageEvent):
+        """创建预约: event add <名称> <时间> [人数上限]
+
+        时间格式含空格（如 2024/01/01 14:00），无法依赖参数注入，
+        故从 message_str 手动解析。
+        """
         if not self._events:
             yield event.plain_result("事件预约系统未启用")
             return
+        name, time_str, max_player = self._extract_event_add_args(event.message_str)
+        if not name:
+            yield event.plain_result("用法: /event add <名称> <时间> [人数]\n时间格式: YYYY/MM/DD HH:MM")
+            return
+        if time_str is None:
+            yield event.plain_result("时间格式不正确，支持 YYYY/MM/DD HH:MM 或 MM/DD HH:MM")
+            return
+        if max_player is None:
+            max_player = 10000
         user = self._get_user(event)
         result = await self._events.add(
             group_key=event.unified_msg_origin,
@@ -353,10 +368,20 @@ class L4D2QueryPlugin(Star):
         yield event.plain_result("✅ 已删除" if result.get("ok") else f"❌ {result.get('error')}")
 
     @event.command("chtime")
-    async def event_chtime(self, event: AstrMessageEvent, index: int, time_str: str):
-        """修改时间: event chtime <序号> <时间>"""
+    async def event_chtime(self, event: AstrMessageEvent):
+        """修改时间: event chtime <序号> <时间>
+
+        时间格式含空格，故从 message_str 手动解析。
+        """
         if not self._events:
             yield event.plain_result("事件预约系统未启用")
+            return
+        index, time_str = self._extract_event_chtime_args(event.message_str)
+        if index is None:
+            yield event.plain_result("用法: /event chtime <序号> <时间>")
+            return
+        if time_str is None:
+            yield event.plain_result("时间格式不正确，支持 YYYY/MM/DD HH:MM 或 MM/DD HH:MM")
             return
         user = self._get_user(event)
         result = await self._events.change_time(
@@ -368,10 +393,20 @@ class L4D2QueryPlugin(Star):
             yield event.plain_result(f"❌ {result.get('error')}")
 
     @event.command("chname")
-    async def event_chname(self, event: AstrMessageEvent, index: int, name: str):
-        """修改名称: event chname <序号> <名称>"""
+    async def event_chname(self, event: AstrMessageEvent):
+        """修改名称: event chname <序号> <名称>
+
+        名称可含空格，故从 message_str 手动解析。
+        """
         if not self._events:
             yield event.plain_result("事件预约系统未启用")
+            return
+        index, name = self._extract_event_chname_args(event.message_str)
+        if index is None:
+            yield event.plain_result("用法: /event chname <序号> <名称>")
+            return
+        if name is None:
+            yield event.plain_result("名称不能为空")
             return
         user = self._get_user(event)
         result = await self._events.change_name(
@@ -610,7 +645,8 @@ class L4D2QueryPlugin(Star):
             yield event.plain_result("SteamID 格式不正确，支持 STEAM_0:1:xxx 或 7656... 形式")
             return
         sid64 = normalize_to_steamid64(sid)
-        await self._set_bind(event, sid)
+        # 存储归一化后的 SteamID64，供 anne/stats 等后续查询精确匹配
+        await self._set_bind(event, sid64 or sid)
         yield event.plain_result(f"✅ 已绑定 SteamID: {sid}\n(SteamID64: {sid64})")
 
     async def _cmd_stats(self, event: AstrMessageEvent, rest: str) -> AsyncGenerator:
@@ -700,10 +736,15 @@ class L4D2QueryPlugin(Star):
             return
         yield event.plain_result(f"正在执行 RCON: {cmd}")
         try:
-            output = await asyncio.to_thread(
-                self._rcon_execute, server.host, server.rcon_port, server.rcon_password, cmd
+            output = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self._rcon_execute, server.host, server.rcon_port, server.rcon_password, cmd
+                ),
+                timeout=15.0,
             )
             yield event.plain_result(f"✅ 执行成功\n{output}")
+        except asyncio.TimeoutError:
+            yield event.plain_result("❌ RCON 连接超时（15s）")
         except Exception as e:  # noqa: BLE001
             yield event.plain_result(f"❌ RCON 连接失败: {e}")
 
@@ -772,6 +813,8 @@ class L4D2QueryPlugin(Star):
                 lines.append(f"{idx}. {r.name}")
                 lines.append(f"   地图: {r.map_name}")
                 lines.append(f"   人数: {r.player_count[0]}/{r.player_count[1]}")
+                if output_ip and r.server:
+                    lines.append(f"   地址: {r.server.host}:{r.server.port}")
                 cfg = get_cfg_name(r.rules)
                 if cfg:
                     lines.append(f"   模式: {cfg}")
@@ -793,6 +836,8 @@ class L4D2QueryPlugin(Star):
             lines.append(f"模式: {cfg}")
         on, mx, bots = result.player_count
         lines.append(f"玩家: {on}/{mx}")
+        if output_ip and result.server:
+            lines.append(f"地址: {result.server.host}:{result.server.port}")
         if result.players:
             lines.append("\n玩家列表:")
             for p in result.players:
@@ -827,8 +872,7 @@ class L4D2QueryPlugin(Star):
 
     def _save_binds(self, data: dict[str, str]) -> None:
         try:
-            with open(self._bind_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            atomic_write_json(self._bind_path, data)
         except Exception as e:  # noqa: BLE001
             logger.error(f"SteamID 绑定数据保存失败: {e}")
 
@@ -839,7 +883,7 @@ class L4D2QueryPlugin(Star):
     def _rcon_execute(host: str, port: int, password: str, cmd: str) -> str:
         """同步执行 RCON（由 asyncio.to_thread 调用）。"""
         from rcon.source import Client as RconClient
-        with RconClient(host, int(port), passwd=password) as client:
+        with RconClient(host, int(port), passwd=password, timeout=10) as client:
             return client.run(cmd)
 
     # ==================================================================
@@ -911,6 +955,104 @@ class L4D2QueryPlugin(Star):
         if len(tokens) >= 4:
             return tokens[3]
         return ""
+
+    @staticmethod
+    def _extract_event_add_args(message_str: str) -> tuple[Optional[str], Optional[str], Optional[int]]:
+        """从 message_str 手动解析 event add 的三个参数。
+
+        message_str 形如 "event add <名称> <时间> [人数上限]"，
+        时间格式含空格（如 2024/01/01 14:00），无法依赖 AstrBot 的空格分割注入。
+
+        Returns: (name, time_str, max_player) — 解析失败的位置为 None。
+        """
+        t = message_str.strip().lstrip("/")
+        # 去除 "event add" 前缀
+        for prefix in ("event add",):
+            if t.lower().startswith(prefix):
+                t = t[len(prefix):].strip()
+                break
+        if not t:
+            return (None, None, None)
+
+        found = find_time_str(t)
+        if found is None:
+            return (None, None, None)
+
+        time_str, ts_start, ts_end = found
+        # 名称 = 时间串之前的内容
+        name = t[:ts_start].strip()
+        rest = t[ts_end:].strip()
+
+        max_player: Optional[int] = None
+        if rest:
+            # 尝试把剩余的第一个 token 解析为人数上限
+            first = rest.split(maxsplit=1)[0]
+            try:
+                max_player = int(first)
+            except ValueError:
+                max_player = None
+
+        return (name, time_str, max_player)
+
+    @staticmethod
+    def _extract_event_chtime_args(message_str: str) -> tuple[Optional[int], Optional[str]]:
+        """从 message_str 手动解析 event chtime 的参数。
+
+        message_str 形如 "event chtime <序号> <时间>"。
+        时间格式含空格，需手动解析。
+
+        Returns: (index, time_str) — 解析失败为 None。
+        """
+        t = message_str.strip().lstrip("/")
+        for prefix in ("event chtime",):
+            if t.lower().startswith(prefix):
+                t = t[len(prefix):].strip()
+                break
+        if not t:
+            return (None, None)
+
+        # 第一个 token 是序号
+        parts = t.split(maxsplit=1)
+        if not parts:
+            return (None, None)
+        try:
+            index = int(parts[0])
+        except ValueError:
+            return (None, None)
+
+        rest = parts[1] if len(parts) > 1 else ""
+        found = find_time_str(rest)
+        if found is None:
+            return (index, None)
+        return (index, found[0])
+
+    @staticmethod
+    def _extract_event_chname_args(message_str: str) -> tuple[Optional[int], Optional[str]]:
+        """从 message_str 手动解析 event chname 的参数。
+
+        message_str 形如 "event chname <序号> <名称>"。
+        名称可含空格，需贪心取参。
+
+        Returns: (index, name) — 解析失败为 None。
+        """
+        t = message_str.strip().lstrip("/")
+        for prefix in ("event chname",):
+            if t.lower().startswith(prefix):
+                t = t[len(prefix):].strip()
+                break
+        if not t:
+            return (None, None)
+
+        parts = t.split(maxsplit=1)
+        if not parts:
+            return (None, None)
+        try:
+            index = int(parts[0])
+        except ValueError:
+            return (None, None)
+
+        name = parts[1].strip() if len(parts) > 1 else ""
+        return (index, name if name else None)
 
     @staticmethod
     def _parse_search_opts(rest: str) -> dict[str, Any] | str:

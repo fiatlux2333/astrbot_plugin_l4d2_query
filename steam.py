@@ -30,20 +30,30 @@ class SteamAPI:
         self._key = api_key or ""
         self._proxy = proxy_url or None
         self._session: Optional[aiohttp.ClientSession] = None
+        self._lock = asyncio.Lock()
 
     @property
     def available(self) -> bool:
         return bool(self._key)
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        """复用同一个 ClientSession，避免每次请求都重建连接池。"""
-        if self._session is None or self._session.closed:
+        """复用同一个 ClientSession，避免每次请求都重建连接池。
+
+        用 asyncio.Lock 保护创建，防止并发请求各建一个 session 导致泄漏。
+        """
+        # 快速路径：已存在且未关闭，直接返回（无锁）
+        if self._session is not None and not self._session.closed:
+            return self._session
+        async with self._lock:
+            # double-check：拿到锁后可能已被其他协程创建
+            if self._session is not None and not self._session.closed:
+                return self._session
             if self._proxy:
                 connector = aiohttp.TCPConnector(proxy=self._proxy)
                 self._session = aiohttp.ClientSession(connector=connector)
             else:
                 self._session = aiohttp.ClientSession()
-        return self._session
+            return self._session
 
     async def close(self) -> None:
         """关闭底层 ClientSession。应在插件 terminate 时调用。"""

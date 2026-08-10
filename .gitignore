@@ -42,3 +42,6 @@ data/
 
 # Playwright
 .playwright/
+
+# Linter cache
+.ruff_cache/

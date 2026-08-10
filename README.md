@@ -25,7 +25,7 @@
 
 ```
 cd AstrBot/data/plugins
-git clone https://github.com/yourname/astrbot_plugin_l4d2_query
+git clone https://github.com/fiatlux2333/astrbot_plugin_l4d2_query
 ```
 
 2. 安装依赖：

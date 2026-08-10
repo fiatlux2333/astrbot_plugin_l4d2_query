@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 from astrbot.api import logger
 
-from .utils import PlatformUser, Reservation, parse_event_time
+from .utils import PlatformUser, Reservation, atomic_write_json, parse_event_time
 
 LOOP_INTERVAL = 600  # 10 分钟
 
@@ -220,8 +220,7 @@ class EventManager:
     def _save(self) -> None:
         try:
             data = {str(idx): res.to_dict() for idx, res in self._res.items()}
-            with open(self._path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            atomic_write_json(self._path, data)
         except Exception as e:  # noqa: BLE001
             logger.error(f"预约数据保存失败: {e}")
 
