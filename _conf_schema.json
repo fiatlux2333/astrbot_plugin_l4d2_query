@@ -31,6 +31,18 @@
     "hint": "normal(图片卡片)/lite(图片表格)/text(纯文本)",
     "default": "normal"
   },
+  "render_max_servers": {
+    "description": "图片渲染最大服务器数",
+    "type": "int",
+    "hint": "分组内服务器数超过该值时跳过图片渲染、直接输出文字，避免大组长图拖垮轻量服务器。0 表示不限制；轻量服务器（2C2G）建议设 15-20。",
+    "default": 0
+  },
+  "render_timeout": {
+    "description": "单次出图超时秒数",
+    "type": "float",
+    "hint": "图片渲染的硬上限，超时自动降级为纯文字输出。默认 15 秒。",
+    "default": 15.0
+  },
   "max_show_player": {
     "description": "服务器图片最大显示人数",
     "type": "int",

@@ -56,7 +56,7 @@ from .utils import (
 )
 
 HELP_TEXT = """\
-L4D2 求生之路查询 v1.0.1
+L4D2 求生之路查询 v1.0.2
 ━━━━━━━━━━━━━━━━━━━━
 /l4d2 connect <ip[:port]>  查询任意服务器
 /l4d2 list [组名]           订阅服务器列表
@@ -151,8 +151,13 @@ class L4D2QueryPlugin(Star):
                 self._anne = None
 
         # 图片渲染
+        render_timeout = 15.0
         try:
-            self._renderer = Renderer()
+            render_timeout = float(self._cfg("render_timeout", 15.0))
+        except (TypeError, ValueError):
+            logger.warning(f"render_timeout 配置值非法（{self._cfg('render_timeout')!r}），使用默认 15.0s")
+        try:
+            self._renderer = Renderer(render_timeout=render_timeout)
             await self._renderer.start()
             logger.info("playwright 渲染器启动成功")
         except Exception as e:  # noqa: BLE001
@@ -756,10 +761,16 @@ class L4D2QueryPlugin(Star):
         style = self._cfg("list_style", "normal")
         max_players = int(self._cfg("max_show_player", 4))
         output_ip = bool(self._cfg("output_ip", True))
+        render_max = int(self._cfg("render_max_servers", 0))
         _, theme = resolve_theme(self.config)
 
         # 渲染器不可用则强制纯文本
         if style != "text" and (not self._renderer or not self._renderer.available):
+            style = "text"
+        # 大组跳过 Chromium 直接文字：长图渲染慢且可能把轻量服务器
+        # 的 Chromium 进程推到 OOM（上游实测 2C2G 渲 67 服 16s+）
+        if style != "text" and render_max > 0 and len(results) > render_max:
+            logger.info(f"分组 {group_name} 含 {len(results)} 台服务器，超过 render_max_servers={render_max}，使用文字输出")
             style = "text"
 
         if style == "text":

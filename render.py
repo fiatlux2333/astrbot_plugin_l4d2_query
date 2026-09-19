@@ -3,17 +3,27 @@
 将 QueryResult 渲染为 HTML，用 playwright 截图 #body 元素生成 PNG。
 支持 3 种样式（normal 卡片网格 / lite 表格行 / text 纯文本）与 5 套主题 + 夜间模式。
 
-中文渲染策略：引入 Google Fonts Noto Sans SC，并用 page.wait_for_timeout
-确保字体下载完成后再截图。同时保留系统字体 fallback。
+中文渲染策略：完全离线，不引外链字体。CSS 回退链以系统安装的
+Noto Sans CJK（README 要求 fonts-noto-cjk）优先，无网络依赖，
+渲染耗时可控且不受防火墙影响。
 """
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from typing import Any
 
 from jinja2 import Environment, select_autoescape
 
 from .query import get_cfg_name, get_os_icon
 from .utils import QueryResult, format_online_time
+
+# 单次出图硬上限默认秒数（可通过 render_timeout 配置覆盖）。
+# 超时抛 asyncio.TimeoutError，由调用方降级为纯文字。
+# 参考上游 nonebot_plugin_l4d2_server 的实测：2C2G 轻量服务器渲染 67 服
+# 卡片需 16s+，Chromium 可能被 OOM killer 杀掉；大组应配合
+# render_max_servers 配置直接走文字，而不是靠这个超时兜底。
+DEFAULT_RENDER_TIMEOUT = 15.0
 
 # 开启自动转义，防止服务器名/玩家名等不可信数据注入 HTML。
 # 模板中 r.player_count 为 tuple，按索引访问不受影响；display_players 内的
@@ -58,8 +68,8 @@ _CSS_VARS = """
 _BASE_CSS = """
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
-  font-family: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB",
-               "WenQuanYi Micro Hei", "SimSun", "SimHei", sans-serif;
+  font-family: "Noto Sans CJK SC", "Noto Sans SC", "Microsoft YaHei", "PingFang SC",
+               "Hiragino Sans GB", "WenQuanYi Micro Hei", "SimSun", "SimHei", sans-serif;
   background: var(--bg);
   color: var(--font);
   font-size: var(--font-size-base);
@@ -224,9 +234,6 @@ TEMPLATE_NORMAL = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
 """ + _CSS_VARS + _BASE_CSS + """
 /* 列表专用 */
@@ -370,9 +377,6 @@ TEMPLATE_LITE = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
 """ + _CSS_VARS + _BASE_CSS + """
 .lite-wrap { padding: var(--space-md); }
@@ -448,9 +452,6 @@ TEMPLATE_DETAIL = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
 """ + _CSS_VARS + _BASE_CSS + """
 .detail-card {
@@ -555,12 +556,18 @@ TEMPLATE_DETAIL = """<!DOCTYPE html>
 # Renderer 类
 # ======================================================================
 class Renderer:
-    """图片渲染器。playwright 浏览器在 start() 启动一次复用。"""
+    """图片渲染器。playwright 浏览器在 start() 启动一次复用。
 
-    def __init__(self):
+    Args:
+        render_timeout: 单次出图硬上限秒数，超时抛 asyncio.TimeoutError
+            （由调用方降级为纯文字）。
+    """
+
+    def __init__(self, render_timeout: float = DEFAULT_RENDER_TIMEOUT):
         self._pw = None
         self._browser = None
         self._available = False
+        self._timeout = max(5.0, float(render_timeout))
 
     async def start(self) -> None:
         """启动 playwright 并 launch chromium。失败则 _available=False。"""
@@ -676,37 +683,49 @@ class Renderer:
     async def _screenshot(self, html: str) -> bytes:
         """渲染 HTML 并截取 #body 元素为 PNG。
 
-        关键：确保字体加载完成后再截图，避免中文显示为方框。
-        策略：
-        1. networkidle 等待 Google Fonts 下载
-        2. document.fonts.ready 等待字体实际就绪
-        3. 额外 sleep 2000ms 给 Chromium 完成字形渲染
+        整体受 render_timeout（默认 15s，可配置）硬上限约束，超时抛
+        asyncio.TimeoutError，由调用方降级为纯文字输出。
+
+        字体策略：模板不引外链字体，完全依赖系统字体（README 要求
+        安装 fonts-noto-cjk）。用 domcontentloaded 而非 networkidle：
+        离线渲染下 DOM 构建完成即返回，不存在等网络静默的问题；
+        document.fonts.ready 有界等待仅为极端情况兜底。
         """
         if not self._available or not self._browser:
             raise RuntimeError("renderer 不可用")
+        return await asyncio.wait_for(self._do_screenshot(html), timeout=self._timeout)
+
+    async def _do_screenshot(self, html: str) -> bytes:
         page = await self._browser.new_page()
         try:
             await page.set_viewport_size({"width": 1000, "height": 800})
+            # 内层超时随外层 render_timeout 联动（留 5s 给字体等待+截图），
+            # 避免外层设 5s 时内层 15s 永远轮不到、或外层设 60s 时内容页仍卡 15s
+            content_timeout = min(15000, max(1000, (self._timeout - 5.0) * 1000))
             await page.set_content(
                 html,
-                wait_until="networkidle",
-                timeout=20000,
+                wait_until="domcontentloaded",
+                timeout=content_timeout,
             )
-            # 等待 Web 字体加载完成
+            # 系统字体在 domcontentloaded 时已可用；此处有界等待仅为
+            # 兜底，超时也继续截图（回退字体总比整体失败强）。
             try:
-                await page.evaluate("document.fonts.ready")
-            except Exception:
+                await asyncio.wait_for(page.evaluate("document.fonts.ready"), timeout=5.0)
+            except asyncio.TimeoutError:
                 pass
-            # 给 Chromium 充足时间完成字形渲染（尤其对中文）
-            await page.wait_for_timeout(2000)
             # 再调整视口到足够高度
             await page.set_viewport_size({"width": 1000, "height": 5000})
             body = page.locator("#body")
             await body.wait_for(state="attached", timeout=5000)
             png = await body.screenshot(type="png")
+            if not png:
+                raise RuntimeError("截图返回空字节")
             return png
         finally:
-            await page.close()
+            # 浏览器被 OOM killer 杀掉等情况下 close() 可能抛异常，
+            # 不应让它掩盖原始错误
+            with contextlib.suppress(Exception):
+                await page.close()
 
 
 # ======================================================================

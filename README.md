@@ -8,8 +8,19 @@
 
 ## 📖 介绍
 
-这是一个从 [koishi-plugin-l4d2-query](https://github.com/CatKoishi/koishi-plugin-l4d2-query) 移植到 AstrBot 的 L4D2 服务器查询/管理插件。插件支持服务器详情查询、订阅分组列表、Steam Web API 找服、玩家数据统计、Anne 药役数据库查询、RCON 远程控制，以及群内事件预约系统（含定时提醒）。
+基于 [nonebot_plugin_l4d2_server](https://github.com/Agnes4m/nonebot_plugin_l4d2_server) 的理念，为 AstrBot 打造的 L4D2 服务器查询/管理插件。
 
+插件采用模块化设计，功能覆盖群聊 L4D2 社区的日常需求：
+
+- **服务器查询** — A2S 协议查询任意服务器详情与玩家列表
+- **订阅分组** — 按组管理订阅服务器，图片卡片 / 表格 / 纯文本三种输出
+- **Steam 找服** — 名称 / IP / 标签 / 空服等条件组合搜索
+- **玩家统计** — L4D2 游戏数据与伪经验评分
+- **Anne 查询** — 药役数据库玩家分数与排名
+- **RCON 控制** — 群内远程执行服务器命令（管理员权限）
+- **事件预约** — 群内游戏预约，报名 / 替补递补 / 定时提醒
+
+渲染层完全离线（不依赖外链字体），带超时熔断与大组自动降级，轻量服务器也能稳定出图。
 
 ## 💿 安装
 
@@ -67,8 +78,10 @@ apk add font-noto-cjk
 | `night_end` | int | `7` | 夜间模式结束小时（0-23） |
 | `night_oled` | bool | `false` | 夜间模式使用 OLED 主题 |
 | `list_style` | str | `normal` | 列表输出样式，可选 `normal`（图片卡片）/ `lite`（图片表格）/ `text`（纯文本） |
+| `render_max_servers` | int | `0` | 图片渲染最大服务器数，分组超过该值时直接输出文字，避免大组长图拖垮轻量服务器。`0` 表示不限制；轻量服务器（2C2G）建议设 15-20 |
+| `render_timeout` | float | `15.0` | 单次出图超时秒数（硬上限），超时自动降级为纯文字输出。修改后需重载插件生效 |
 | `max_show_player` | int | `4` | 图片最大显示人数 |
-| `output_ip` | bool | `true` | 详情中输出 connect 地址 |
+| `output_ip` | bool | `true` | 纯文本输出中附带服务器地址 |
 | `query_limit` | int | `4` | 并发查询限制，查询订阅服列表时的最大并发数 |
 | `servers` | list | `[]` | 订阅服务器列表，每一项含 `name`/`group`/`host`/`port`/`rcon_port`/`rcon_password` |
 | `steam_web_api` | str | `""` | Steam Web API Key，用于找服和求生数据查询。在 https://steamcommunity.com/dev/apikey 获取 |
@@ -210,7 +223,7 @@ playwright install chromium
 
 ## 🖋 字体说明
 
-本插件渲染服务器列表图片时使用 **Noto Sans SC**（通过 Google Fonts 加载）作为中文字体，并保留系统字体回退链（Microsoft YaHei、PingFang SC、SimSun 等）以保证跨平台一致性。
+本插件渲染服务器列表图片时**完全离线**，不依赖任何外链字体（避免国内网络环境导致出图卡顿或超时）。中文字体使用系统安装的 **Noto Sans CJK**，并保留系统字体回退链（Microsoft YaHei、PingFang SC、SimSun 等）以保证跨平台一致性。
 
 > 字体安装已在「安装」章节中提前说明，请务必在安装阶段完成。Linux 服务器若未安装中文字体，图片中的中文会显示为方框（□）。
 
@@ -224,12 +237,12 @@ playwright install chromium
 
 ## 🛠️ 技术实现
 
-- 使用 **python-a2s** 通过 Valve Source Query 协议查询服务器信息（info/players/rules）
-- 使用 **Playwright + Jinja2** 进行 HTML 到图片的转换，支持 5 套主题与夜间模式
-- 使用 **aiohttp** 异步调用 Steam Web API 进行服务器搜索与玩家统计
+- 使用 **python-a2s** 通过 Valve Source Query 协议查询服务器信息（info/players/rules），Semaphore 并发控制 + 单服独立容错
+- 使用 **Playwright + Jinja2** 进行 HTML 到图片的转换，支持 5 套主题与夜间模式；渲染完全离线、超时熔断（`render_timeout`）、大组自动降级文字（`render_max_servers`）
+- 使用 **aiohttp** 异步调用 Steam Web API 进行服务器搜索与玩家统计，连接池复用
 - 使用 **aiomysql** 连接池查询 Anne 数据库，计算玩家排名
-- 使用 **rcon** 库通过 asyncio.to_thread 异步执行 RCON 命令，避免阻塞事件循环
-- 事件预约系统使用 JSON 持久化 + asyncio 定时循环，支持报名/替补/自动递补
+- 使用 **rcon** 库通过 asyncio.to_thread + 双层超时执行 RCON 命令
+- 事件预约系统使用原子化 JSON 持久化 + asyncio 定时循环，支持报名/替补/自动递补
 
 ## 📝 功能特性
 
@@ -244,11 +257,11 @@ playwright install chromium
 
 ## 📄 许可证
 
-本项目继承原项目 [koishi-plugin-l4d2-query](https://github.com/CatKoishi/koishi-plugin-l4d2-query) 的 **GPL-3.0** 许可证，详见仓库根目录的 [LICENSE](./LICENSE) 文件。
+本项目继承 [nonebot_plugin_l4d2_server](https://github.com/Agnes4m/nonebot_plugin_l4d2_server) 的 **GPL-3.0** 许可证，详见仓库根目录的 [LICENSE](./LICENSE) 文件。
 
 ## ❤ 致谢
 
-- [koishi-plugin-l4d2-query](https://github.com/CatKoishi/koishi-plugin-l4d2-query) - 原始项目，由 [NyaKoishi](https://github.com/CatKoishi) 开发
+- [nonebot_plugin_l4d2_server](https://github.com/Agnes4m/nonebot_plugin_l4d2_server) - 原项目，由 [Agnes4m](https://github.com/Agnes4m) 开发
 - [AstrBot](https://github.com/AstrBotDevs/AstrBot) - 优秀的机器人框架
 - [python-a2s](https://github.com/Yepoleb/python-a2s) - Python A2S 协议实现
 - [Playwright](https://playwright.dev/) - 浏览器自动化方案
